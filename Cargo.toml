@@ -6,7 +6,10 @@ edition = "2021"
 [workspace]
 resolver = "2"
 members = [
-    "crates/domain-core", "crates/iam",
+    "crates/domain-core",
+    "crates/iam",
+    "crates/crm",
+    "crates/catalog",
 ]
 
 [dependencies]
@@ -19,3 +22,5 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 domain-core = { path = "crates/domain-core" }
+crm = { path = "crates/crm" }
+catalog = { path = "crates/catalog" }

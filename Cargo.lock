@@ -193,6 +193,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "catalog"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "domain-core",
+ "serde",
+ "uuid",
+]
+
+[[package]]
 name = "cc"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -257,6 +267,16 @@ name = "crc-catalog"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
+
+[[package]]
+name = "crm"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "domain-core",
+ "serde",
+ "uuid",
+]
 
 [[package]]
 name = "crossbeam-queue"
@@ -1057,7 +1077,9 @@ name = "oxidetel-bss"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "catalog",
  "chrono",
+ "crm",
  "domain-core",
  "dotenvy",
  "serde",
