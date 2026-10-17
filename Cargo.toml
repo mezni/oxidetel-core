@@ -10,7 +10,7 @@ members = [
     "crates/iam",
     "crates/crm",
     "crates/catalog", 
-    "crates/ordering", "crates/generator", "crates/billing",
+    "crates/ordering", "crates/generator", "crates/billing", "crates/dunning",
 ]
 
 [dependencies]
@@ -28,3 +28,4 @@ catalog = { path = "crates/catalog" }
 ordering = { path = "crates/ordering" }
 generator = { path = "crates/generator" }
 billing = { path = "crates/billing" }
+dunning = { path = "crates/dunning" }
