@@ -1,9 +1,9 @@
 mod api;
 
+use dotenvy::dotenv;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
-use dotenvy::dotenv;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -46,13 +46,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     tracing::info!("Background Dunning worker spawned.");
 
-    // 4. Build Axum Router & attach metrics endpoint
-    let app = api::create_router(pool)
-        .route("/metrics", axum::routing::get(move || async move {
-            recorder_handle.render()
-        }));
+    // 4. Spawn Background CDR Mediation & Rating Worker Task
+    let mediation_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(45));
+        loop {
+            interval.tick().await;
+            if let Err(e) = billing::mediation::process_cdr_mediation_batch(&mediation_pool).await {
+                tracing::error!("Error in CDR mediation worker: {:?}", e);
+            }
+        }
+    });
+    tracing::info!("Background CDR Mediation & Rating worker spawned.");
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    // 5. Build Axum Router & attach metrics endpoint
+    let app = api::create_router(pool).route(
+        "/metrics",
+        axum::routing::get(move || async move { recorder_handle.render() }),
+    );
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     tracing::info!("OxideTel BSS server running on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;

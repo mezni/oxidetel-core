@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 use tokio::time::{self, Duration};
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 pub async fn start_dunning_worker(pool: PgPool) {
     // Run dunning sweep every 30 seconds for demonstration purposes

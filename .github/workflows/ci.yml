@@ -1,0 +1,61 @@
+name: OxideTel BSS CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/oxidetel
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: oxidetel
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Clippy Linter
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Workspace Unit Tests
+        run: cargo test --workspace
+
+      - name: Run End-to-End Customer Lifecycle Integration Tests
+        run: cargo test --test customer_lifecycle_test -- --nocapture
+
+      - name: Build Production Release Binary
+        run: cargo build --release
+
+      - name: Validate Docker Multi-Stage Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: oxidetel-bss:latest
