@@ -1,41 +1,52 @@
 mod api;
 
-use billing::engine::BillingEngine;
 use dotenvy::dotenv;
-use dunning::engine::DunningEngine;
-use generator::TelephonyDataGenerator;
-use ordering::oss_adapter::OssProvisioningAdapter;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
+    // 1. Initialize Structured Logging & Tracing
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "oxidetel_bss=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer().json())
+        .init();
+
+    tracing::info!("Initializing OxideTel BSS Engine...");
+
+    // 2. Initialize Prometheus Metrics Exporter
+    let recorder_handle = PrometheusBuilder::new()
+        .install_recorder()
+        .expect("Failed to install Prometheus recorder");
+
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/oxidetel".to_string());
 
-    println!("🔌 Connecting to PostgreSQL...");
+    tracing::info!("Connecting to PostgreSQL database pool...");
     let pool = PgPoolOptions::new()
         .max_connections(20)
         .connect(&database_url)
         .await?;
 
-    println!("🔄 Running multi-schema database migrations...");
+    tracing::info!("Executing database multi-schema migrations...");
     sqlx::migrate!("./migrations").run(&pool).await?;
-    println!("✅ Database migrations applied successfully.");
+    tracing::info!("Database migrations applied successfully.");
 
-    // --- Optional E2E Simulation Run on Startup ---
-    println!("\n🚀 === EXECUTING INITIAL TELECOM BOOTSTRAP SEED ===");
-    let generator = TelephonyDataGenerator::new(pool.clone());
-    let _customer_ids = generator.seed_base_system(2).await?;
-    println!("✅ Initial subscribers seeded.");
-
-    // Build Axum router with REST API endpoints
-    let app = api::create_router(pool);
+    // 3. Build Axum Router & attach metrics endpoint
+    let app = api::create_router(pool).route(
+        "/metrics",
+        axum::routing::get(move || async move { recorder_handle.render() }),
+    );
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-    println!("🚀 OxideTel BSS REST API running on http://{}", addr);
+    tracing::info!("OxideTel BSS server running on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;

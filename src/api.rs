@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
+use tower_http::trace::TraceLayer;
+
 pub fn create_router(pool: PgPool) -> Router {
     Router::new()
         .route("/health", get(health_check))
@@ -16,6 +18,7 @@ pub fn create_router(pool: PgPool) -> Router {
         .route("/api/orders", post(place_order))
         .route("/api/invoices/:customer_id", get(get_customer_invoices))
         .route("/api/webhooks/payment", post(handle_payment_webhook))
+        .layer(TraceLayer::new_for_http()) // <-- Adds structured request tracing
         .with_state(pool)
 }
 
