@@ -26,8 +26,11 @@ impl OssProvisioningAdapter {
         };
 
         // For MVP architecture, simulate successful network handshake response
-        println!("📡 [OSS ADAPTER] Sending activation command to core network for SIM ID: {}", sim_id);
-        
+        println!(
+            "📡 [OSS ADAPTER] Sending activation command to core network for SIM ID: {}",
+            sim_id
+        );
+
         // In production, this would execute:
         // let client = reqwest::Client::new();
         // let res = client.post(&self.mock_network_url).json(&payload).send().await;

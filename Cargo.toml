@@ -10,7 +10,7 @@ members = [
     "crates/iam",
     "crates/crm",
     "crates/catalog", 
-    "crates/ordering",
+    "crates/ordering", "crates/generator",
 ]
 
 [dependencies]
@@ -26,3 +26,4 @@ domain-core = { path = "crates/domain-core" }
 crm = { path = "crates/crm" }
 catalog = { path = "crates/catalog" }
 ordering = { path = "crates/ordering" }
+generator = { path = "crates/generator" }
