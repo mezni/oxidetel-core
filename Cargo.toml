@@ -38,3 +38,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.22"
 tower-http = { version = "0.5", features = ["trace", "cors"] }
 metrics-exporter-prometheus = { version = "0.13", default-features = false, features = ["http-listener"] }
+rust_decimal = { version = "1.33", features = ["serde"] }
