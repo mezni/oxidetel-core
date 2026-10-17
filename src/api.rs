@@ -15,6 +15,7 @@ pub fn create_router(pool: PgPool) -> Router {
         .route("/api/catalog/plans", get(list_rate_plans))
         .route("/api/orders", post(place_order))
         .route("/api/invoices/:customer_id", get(get_customer_invoices))
+        .route("/api/webhooks/payment", post(handle_payment_webhook))
         .with_state(pool)
 }
 
@@ -166,4 +167,99 @@ async fn get_customer_invoices(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(invoices))
+}
+
+// --- Payment Webhook DTO & Handler ---
+
+#[derive(Deserialize)]
+pub struct PaymentWebhookDto {
+    invoice_id: Uuid,
+    customer_id: Uuid,
+    amount_cents: i64,
+    gateway_reference: String,
+}
+
+async fn handle_payment_webhook(
+    State(pool): State<PgPool>,
+    Json(payload): Json<PaymentWebhookDto>,
+) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
+    let payment_id = Uuid::new_v4();
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 1. Record the payment transaction
+    sqlx::query(
+        r#"INSERT INTO billing.payments (id, invoice_id, customer_id, amount_cents, gateway_reference, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'SUCCESS', NOW())"#,
+    )
+    .bind(payment_id)
+    .bind(payload.invoice_id)
+    .bind(payload.customer_id)
+    .bind(payload.amount_cents)
+    .bind(&payload.gateway_reference)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 2. Mark the invoice as PAID
+    sqlx::query(r#"UPDATE billing.invoices SET status = 'PAID' WHERE id = $1"#)
+        .bind(payload.invoice_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 3. Resolve any active dunning cases
+    sqlx::query(
+        r#"UPDATE dunning.cases SET stage = 'RESOLVED', updated_at = NOW() WHERE invoice_id = $1"#,
+    )
+    .bind(payload.invoice_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 4. Unbar / Reactivate subscriber service at the OSS network layer
+    let sim_row =
+        sqlx::query(r#"SELECT sim_id FROM catalog.subscriptions WHERE customer_id = $1 LIMIT 1"#)
+            .bind(payload.customer_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if let Some(sim) = sim_row {
+        use sqlx::Row;
+        let sim_id: Uuid = sim.get("sim_id");
+        println!(
+            "📡 [OSS ADAPTER] Sending UNBAR / RESTORE command for SIM ID: {}",
+            sim_id
+        );
+
+        // Update subscription status back to ACTIVE
+        sqlx::query(r#"UPDATE catalog.subscriptions SET status = 'ACTIVE' WHERE customer_id = $1"#)
+            .bind(payload.customer_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    println!(
+        "✅ [WEBHOOK] Payment of ${:.2} processed successfully for Invoice {}.",
+        payload.amount_cents as f64 / 100.0,
+        payload.invoice_id
+    );
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "success",
+            "payment_id": payment_id,
+            "invoice_id": payload.invoice_id,
+            "message": "Payment processed, dunning resolved, and service restored."
+        })),
+    ))
 }
