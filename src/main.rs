@@ -1,9 +1,9 @@
 mod api;
 
-use dotenvy::dotenv;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
+use dotenvy::dotenv;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -39,11 +39,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     tracing::info!("Database migrations applied successfully.");
 
-    // 3. Build Axum Router & attach metrics endpoint
-    let app = api::create_router(pool).route(
-        "/metrics",
-        axum::routing::get(move || async move { recorder_handle.render() }),
-    );
+    // 3. Spawn Background Dunning Worker Task
+    let dunning_pool = pool.clone();
+    tokio::spawn(async move {
+        dunning::start_dunning_worker(dunning_pool).await;
+    });
+    tracing::info!("Background Dunning worker spawned.");
+
+    // 4. Build Axum Router & attach metrics endpoint
+    let app = api::create_router(pool)
+        .route("/metrics", axum::routing::get(move || async move {
+            recorder_handle.render()
+        }));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     tracing::info!("OxideTel BSS server running on http://{}", addr);
