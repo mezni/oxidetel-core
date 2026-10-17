@@ -9,7 +9,8 @@ members = [
     "crates/domain-core",
     "crates/iam",
     "crates/crm",
-    "crates/catalog",
+    "crates/catalog", 
+    "crates/ordering",
 ]
 
 [dependencies]
@@ -24,3 +25,4 @@ dotenvy = "0.15"
 domain-core = { path = "crates/domain-core" }
 crm = { path = "crates/crm" }
 catalog = { path = "crates/catalog" }
+ordering = { path = "crates/ordering" }
