@@ -6,7 +6,7 @@ edition = "2021"
 [workspace]
 resolver = "2"
 members = [
-    "crates/domain-core",
+    "crates/domain-core", "crates/iam",
 ]
 
 [dependencies]
