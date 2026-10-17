@@ -1,0 +1,389 @@
+openapi: 3.0.3
+info:
+  title: OxideTel BSS API
+  description: |
+    REST API for the OxideTel Business Support System — subscriber onboarding,
+    catalog, ordering, invoicing, payment settlement, and Prometheus metrics.
+
+    ## Authentication
+    No authentication is currently enforced on any route (the JWT extractor in
+    `src/auth.rs` is not yet wired into the router). Treat all routes as
+    internal and place the service behind a gateway / private network.
+
+    ## Money
+    All monetary values are integer **cents** (`*_cents`, `i64`) with an ISO-4217
+    `currency` code. Never interpret them as floating-point amounts.
+
+    ## Idempotency
+    `POST /api/webhooks/payment` is safe to retry: `gateway_reference` is unique
+    in `billing.payments` and a duplicate insert fails the transaction (HTTP 500),
+    leaving all state unchanged.
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development (docker-compose / cargo run)
+
+tags:
+  - name: System
+    description: Health and observability endpoints
+  - name: Customers
+    description: CRM — subscriber registration
+  - name: Catalog
+    description: Rate plans and products
+  - name: Orders
+    description: Order capture and provisioning
+  - name: Billing
+    description: Invoices and payment settlement
+  - name: Webhooks
+    description: Inbound callbacks from external systems
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness / health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, system, version]
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  system:
+                    type: string
+                    example: OxideTel BSS
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+  /metrics:
+    get:
+      tags: [System]
+      summary: Prometheus metrics exposition
+      description: |
+        Renders the Prometheus recorder via `metrics-exporter-prometheus`.
+        Scrape this endpoint with Prometheus; see `docs/operations/monitoring.md`
+        for the metric inventory and alert rules.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # TYPE process_cpu_seconds_total counter
+                  process_cpu_seconds_total 0.42
+
+  /api/customers:
+    post:
+      tags: [Customers]
+      summary: Register a new customer
+      description: |
+        Inserts a row into `crm.customers` with status `ACTIVE`. The email must
+        be unique; a violation returns HTTP 500 (no dedicated conflict mapping yet).
+      operationId: registerCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterCustomerRequest'
+      responses:
+        '201':
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerCreatedResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/catalog/plans:
+    get:
+      tags: [Catalog]
+      summary: List active rate plans
+      description: Returns rows from `catalog.rate_plans` where `is_active = TRUE`.
+      operationId: listRatePlans
+      responses:
+        '200':
+          description: Active rate plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RatePlan'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/orders:
+    post:
+      tags: [Orders]
+      summary: Place an order for a rate plan
+      description: |
+        Looks up the plan's monthly fee, then inserts an `ordering.orders` row
+        with status `COMPLETED` in a single transaction. Returns 404 if the
+        `rate_plan_id` does not exist.
+      operationId: placeOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOrderRequest'
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderCreatedResponse'
+        '404':
+          description: Rate plan not found
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/invoices/{customer_id}:
+    get:
+      tags: [Billing]
+      summary: List invoices for a customer
+      operationId: getCustomerInvoices
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: Invoices (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invoice'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/webhooks/payment:
+    post:
+      tags: [Webhooks]
+      summary: Payment gateway webhook — settle an invoice
+      description: |
+        Called by the payment gateway on successful charge. Runs one transaction that:
+        1. Records the payment in `billing.payments` (status `SUCCESS`);
+        2. Marks the invoice `PAID`;
+        3. Resolves any active `dunning.cases` for the invoice;
+        4. Restores `catalog.subscriptions` to `ACTIVE` and logs the OSS UNBAR command.
+
+        See `docs/api/webhooks.md` for retry semantics and signature guidance.
+      operationId: handlePaymentWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentWebhook'
+      responses:
+        '200':
+          description: Payment processed, dunning resolved, service restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentWebhookResponse'
+        '500':
+          description: |
+            Transaction failed and rolled back — including a duplicate
+            `gateway_reference` (idempotency collision). Safe for the gateway to retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  parameters:
+    CustomerId:
+      name: customer_id
+      in: path
+      required: true
+      description: Customer UUID (`crm.customers.id`)
+      schema:
+        type: string
+        format: uuid
+      example: 3f1d2a4e-8b6c-4f9a-9d2e-1c7b5a0e3f44
+
+  responses:
+    InternalServerError:
+      description: Internal server error (query failed or transaction rolled back)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    RegisterCustomerRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Ada Lovelace
+        email:
+          type: string
+          format: email
+          example: ada@example.com
+
+    CustomerCreatedResponse:
+      type: object
+      required: [customer_id, name, email, status]
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [ACTIVE]
+          example: ACTIVE
+
+    RatePlan:
+      type: object
+      required: [id, name, code, monthly_fee_cents, included_data_bytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: 5G Unlimited
+        code:
+          type: string
+          uniqueItems: true
+          example: PLAN_5G_10GB
+        monthly_fee_cents:
+          type: integer
+          format: int64
+          description: Monthly plan fee in cents
+          example: 2500
+        included_data_bytes:
+          type: integer
+          format: int64
+          example: 10737418240
+
+    PlaceOrderRequest:
+      type: object
+      required: [customer_id, rate_plan_id]
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        rate_plan_id:
+          type: string
+          format: uuid
+
+    OrderCreatedResponse:
+      type: object
+      required: [order_id, customer_id, status, total_amount_cents]
+      properties:
+        order_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [COMPLETED]
+        total_amount_cents:
+          type: integer
+          format: int64
+
+    Invoice:
+      type: object
+      required: [id, amount_cents, currency, status, due_date]
+      properties:
+        id:
+          type: string
+          format: uuid
+        amount_cents:
+          type: integer
+          format: int64
+          example: 4500
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          example: USD
+        status:
+          type: string
+          enum: [ISSUED, PAID, OVERDUE, CANCELLED]
+          example: ISSUED
+        due_date:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    PaymentWebhook:
+      type: object
+      required: [invoice_id, customer_id, amount_cents, gateway_reference]
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+          description: Target invoice (`billing.invoices.id`)
+        customer_id:
+          type: string
+          format: uuid
+        amount_cents:
+          type: integer
+          format: int64
+          example: 4500
+        gateway_reference:
+          type: string
+          maxLength: 100
+          description: |
+            Unique gateway transaction ID (e.g. `ch_3Mxyz123...`). Stored in
+            `billing.payments.gateway_reference` (UNIQUE) and used as the
+            idempotency key.
+          example: ch_3Mxyz123abcDEF
+
+    PaymentWebhookResponse:
+      type: object
+      required: [status, payment_id, invoice_id, message]
+      properties:
+        status:
+          type: string
+          enum: [success]
+        payment_id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          example: Payment processed, dunning resolved, and service restored.
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: internal server error
