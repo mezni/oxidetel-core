@@ -13,3 +13,18 @@ paths:
       responses:
         '200':
           description: OK
+  /devices:
+    get:
+      responses:
+        '200':
+          description: OK
+  /sims:
+    get:
+      responses:
+        '200':
+          description: OK
+  /assignments:
+    get:
+      responses:
+        '200':
+          description: OK

@@ -5,7 +5,10 @@ use std::net::SocketAddr;
 async fn main() {
     let app = Router::new()
         .route("/health/live", get(|| async { "ok" }))
-        .route("/health/ready", get(|| async { "ok" }));
+        .route("/health/ready", get(|| async { "ok" }))
+        .route("/devices", get(|| async { "[]" }))
+        .route("/sims", get(|| async { "[]" }))
+        .route("/assignments", get(|| async { "[]" }));
     let addr = SocketAddr::from(([0, 0, 0, 0], 8004));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
