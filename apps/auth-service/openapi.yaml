@@ -13,3 +13,13 @@ paths:
       responses:
         '200':
           description: OK
+  /auth/login:
+    post:
+      responses:
+        '200':
+          description: OK
+  /auth/me:
+    get:
+      responses:
+        '200':
+          description: OK

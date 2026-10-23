@@ -13,3 +13,18 @@ paths:
       responses:
         '200':
           description: OK
+  /invoices:
+    get:
+      responses:
+        '200':
+          description: OK
+  /payments:
+    get:
+      responses:
+        '200':
+          description: OK
+  /ledger:
+    get:
+      responses:
+        '200':
+          description: OK
