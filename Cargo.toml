@@ -10,6 +10,7 @@ members = [
     "crates/api-common",
     "crates/config",
     "crates/observability",
+    "crates/synthetic-data",
 ]
 
 [workspace.package]

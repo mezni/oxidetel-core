@@ -90,7 +90,7 @@ Test monetary precision, ledger immutability, compensating entries, idempotency,
 Test fresh init, apply all migrations, failure handling, permissions, constraints, rollback/forward recovery.
 
 ## 8. Test Data and Fixtures
-Use synthetic deterministic data. Isolate per test, no production data.
+Use synthetic deterministic data. Isolate per test, no production data. See `docs/synthetic-data.md` for the per-schema generation rules, scenarios, and configuration.
 
 ## 9. Observability and Reliability Testing
 Test correlation IDs, structured logging (no secrets), metrics, health/readiness, graceful shutdown, dependency failures.
